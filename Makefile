@@ -17,3 +17,11 @@ all: configure
 run: configure
 	$(call cmake_build,core)
 	@$(BUILD_DIR)/core/core
+
+.PHONY: lint
+lint: configure
+	$(call cmake_build,tidy)
+
+.PHONY: clear
+clear:
+	rm -rf $(BUILD_DIR)

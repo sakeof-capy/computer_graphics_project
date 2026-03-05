@@ -39,7 +39,6 @@ int main()
 
 	cv::Mat image_readed = cv::imread(imageName.c_str(), cv::IMREAD_COLOR);
 
-
 	cv::Mat image(width, height, CV_8UC3, cv::Scalar(0, 0, 0));
 	cv::imshow( "Show empty image", image);
 
