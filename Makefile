@@ -22,6 +22,10 @@ run: configure
 lint: configure
 	$(call cmake_build,tidy)
 
+.PHONY: format
+format: configure
+	$(call cmake_build,format)
+
 .PHONY: clear
 clear:
 	rm -rf $(BUILD_DIR)
