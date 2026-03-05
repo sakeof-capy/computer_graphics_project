@@ -1,0 +1,7 @@
+/build/
+/artifacts/
+/build/
+/.vscode/
+/docs/output/
+/.idea/
+/cmake-build-*/
