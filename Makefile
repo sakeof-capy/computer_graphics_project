@@ -16,7 +16,7 @@ all: configure
 .PHONY: run
 run: configure
 	$(call cmake_build,core)
-	@$(BUILD_DIR)/core/core
+	@$(BUILD_DIR)/core/core $(ARGS)
 
 .PHONY: lint
 lint: configure

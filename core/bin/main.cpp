@@ -6,6 +6,7 @@
 #include <iostream>
 #include <opencv2/opencv.hpp>
 #include <random>
+#include <string_view>
 
 using model::Model;
 using model::ModelParsingError;
@@ -99,10 +100,28 @@ void drawModelTriangles(
     }
 }
 
-int main()
+std::optional<DrawMode> parseDrawMode(std::string_view arg)
 {
-    const int width = 800;
-    const int height = 800;
+    if (arg == "--lines")     return DrawMode::Lines;
+    if (arg == "--triangles") return DrawMode::Triangles;
+    return std::nullopt;
+}
+
+int main(int argc, char* argv[])
+{
+    if (argc != 2)
+    {
+        std::cerr << "Usage: " << argv[0] << " [--lines|--triangles]\n";
+        return EXIT_FAILURE;
+    }
+
+    const std::optional<DrawMode> mode = parseDrawMode(argv[1]);
+    if (!mode.has_value())
+    {
+        std::cerr << "Unknown draw mode: " << argv[1] << "\n"
+                  << "Usage: " << argv[0] << " [--lines|--triangles]\n";
+        return EXIT_FAILURE;
+    }
 
     const std::expected<Model, ModelParsingError> maybe_model =
         model::parse_model("./models/african_head.obj");
@@ -117,8 +136,6 @@ int main()
 
     const Model& model = maybe_model.value();
 
-    // Modern C++ random: Mersenne Twister seeded from hardware
-    // entropy
     std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
 
@@ -126,24 +143,22 @@ int main()
     for (auto& c : face_colors)
         c = cv::Vec3b(dist(rng), dist(rng), dist(rng));
 
-    DrawMode mode = DrawMode::Triangles;
+    const int width = 800;
+    const int height = 800;
 
     cv::namedWindow("3D Rotation", cv::WINDOW_AUTOSIZE);
-    std::cout << "Press T for triangles, L for lines, any other key "
-                 "to quit.\n";
 
     int frame = 0;
     while (true)
     {
-        float t = frame * 0.02f;
-        float angleX = 0.3f * std::sin(t * 0.7f);
-        float angleY = t;
-        float angleZ = 0.2f * std::cos(t * 1.3f);
+        const float t      = frame * 0.02f;
+        const float angleX = 0.3f * std::sin(t * 0.7f);
+        const float angleY = t;
+        const float angleZ = 0.2f * std::cos(t * 1.3f);
 
-        cv::Mat
-            image(height, width, CV_8UC3, cv::Scalar(50, 100, 20));
+        cv::Mat image(height, width, CV_8UC3, cv::Scalar(50, 100, 20));
 
-        switch (mode)
+        switch (*mode)
         {
         case DrawMode::Lines:
             drawModelLines(model, image, angleX, angleY, angleZ);
@@ -162,19 +177,8 @@ int main()
 
         cv::imshow("3D Rotation", image);
 
-        const int key = cv::waitKey(20);
-        if (key == 't' || key == 'T')
-        {
-            mode = DrawMode::Triangles;
-        }
-        else if (key == 'l' || key == 'L')
-        {
-            mode = DrawMode::Lines;
-        }
-        else if (key >= 0)
-        {
+        if (cv::waitKey(20) >= 0)
             break;
-        }
 
         frame++;
     }
