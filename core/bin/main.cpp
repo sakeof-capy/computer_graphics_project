@@ -1,5 +1,9 @@
-#include "model.hpp"
+#include "Model.hpp"
+#include "Error.hpp"
 #include <iostream>
+
+using model::Model;
+using model::ModelParsingError;
 
 void line(int x0, int y0, int x1, int y1, cv::Mat& image, cv::Vec3b color)
 {
@@ -22,14 +26,13 @@ void line(int x0, int y0, int x1, int y1, cv::Mat& image, cv::Vec3b color)
         int y = y0 * (1. - t) + y1 * t;
         if (x > 0 && y > 0)
         {
-
             if (steep)
             {
-                image.at<cv::Vec3b>(y, x) = color;
+                image.at<cv::Vec3b>(x, y) = color;
             }
             else
             {
-                image.at<cv::Vec3b>(x, y) = color;
+                image.at<cv::Vec3b>(y, x) = color;
             }
         }
     }
@@ -47,29 +50,38 @@ int main()
     cv::Mat image(width, height, CV_8UC3, cv::Scalar(0, 0, 0));
     cv::imshow("Show empty image", image);
 
-    Model* model = NULL;
-    model = new Model("./models/african_head.obj");
-    cv::Vec3b white(255, 255, 255);
-
-    for (int i = 0; i < model->nfaces(); i++)
+    const std::expected<Model, ModelParsingError> maybe_model 
+        = model::parse_model("./models/african_head.obj");
+    
+    if (!maybe_model.has_value()) [[unlikely]]
     {
-        std::vector<int> face = model->face(i);
+        std::cerr << "Error: " << stringify_error_variant(maybe_model.error());
+        std::cerr.flush();
+        return EXIT_FAILURE;
+    }
+
+    const Model& model = maybe_model.value();
+    const cv::Vec3b white { 255, 255, 255 };
+
+    for (int i = 0; i < model.faces.size(); i++)
+    {
+        const std::vector<int>& face = model.faces[i];
         for (int j = 0; j < 3; j++)
         {
-            cv::Vec3f v0 = model->vert(face[j]);
-            cv::Vec3f v1 = model->vert(face[(j + 1) % 3]);
-            int x0 = (v0[0] + 1.) * width / 2.;
-            int y0 = (v0[1] + 1.) * height / 2.;
-            int x1 = (v1[0] + 1.) * width / 2.;
-            int y1 = (v1[1] + 1.) * height / 2.;
+            cv::Vec3f v0 = model.verts[face[j]];
+            cv::Vec3f v1 = model.verts[face[(j + 1) % 3]];
+            int x0 = (1. - v0[0]) * width / 2.;
+            int y0 = (1. - v0[1]) * height / 2.;
+            int x1 = (1. - v1[0]) * width / 2.;
+            int y1 = (1. - v1[1]) * height / 2.;
             line(x0, y0, x1, y1, image, white);
         }
     }
-    cv::imshow("Display window", image); // Show our image inside it.
+    std::cout.flush();
+    cv::imshow("Display window", image);
 
-    cv::waitKey(0); // Wait for a keystroke in the window
+    cv::waitKey(0);
 
-    delete model;
     system("Pause");
-    return 0;
+    return EXIT_SUCCESS;
 }
