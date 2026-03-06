@@ -1,13 +1,13 @@
 #ifndef __MODEL_H__
 #define __MODEL_H__
 
+#include <expected>
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <vector>
-#include <expected>
-#include <variant>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace model
 {
@@ -15,10 +15,10 @@ namespace model
 struct FileNotFound
 {
 public:
-    std::string file_path; 
+    std::string file_path;
 
 public:
-    [[nodiscard]] 
+    [[nodiscard]]
     std::string stringify() const noexcept;
 };
 
@@ -30,9 +30,11 @@ struct Model
     std::vector<std::vector<int>> faces;
 };
 
-[[nodiscard]] 
-std::expected<Model, ModelParsingError> parse_model(const char* filename);
+[[nodiscard]]
+std::expected<Model, ModelParsingError> parse_model(
+    const char* filename
+);
 
-}
+} // namespace model
 
 #endif //__MODEL_H__

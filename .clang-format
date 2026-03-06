@@ -1,18 +1,37 @@
 # Base style
 BasedOnStyle: LLVM
-IndentWidth: 4             # 4 spaces for indentation
-AccessModifierOffset: -4 
+
+IndentWidth: 4
 TabWidth: 4
-UseTab: Never              # always spaces, never tabs
+UseTab: Never
+AccessModifierOffset: -4
+
+ColumnLimit: 70
+
+BreakBeforeBraces: Allman
+PointerAlignment: Left
+
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 AllowShortFunctionsOnASingleLine: Inline
-ColumnLimit: 100           # wrap long lines at 100 chars
-BreakBeforeBraces: Allman   # brace on new line (popular in C++)
-PointerAlignment: Left      # `int* ptr` style
+
+SpaceAfterCStyleCast: true
+SpaceBeforeParens: ControlStatements
 SpacesInParentheses: false
 SpacesInSquareBrackets: false
-SpaceAfterCStyleCast: true
-SpaceBeforeParens: ControlStatements # `if (cond)` instead of `if(cond)`
+
 BreakBeforeBinaryOperators: None
-SortIncludes: true          # automatically sort #includes
+
+SortIncludes: true
+
+# --- Important additions ---
+BinPackArguments: false        # do NOT pack many arguments into one line
+BinPackParameters: false       # same for function parameters
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+PenaltyBreakBeforeFirstCallParameter: 1
+PenaltyBreakAssignment: 2
+PenaltyReturnTypeOnItsOwnLine: 200
+
+AlignAfterOpenBracket: BlockIndent

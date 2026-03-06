@@ -11,22 +11,22 @@ namespace model
 std::string FileNotFound::stringify() const noexcept
 {
     return std::format(
-        "Unable to load model from a non-existent file: {}", 
+        "Unable to load model from a non-existent file: {}",
         this->file_path
     );
 }
 
-std::expected<Model, ModelParsingError> parse_model(const char* filename)
+std::expected<Model, ModelParsingError> parse_model(
+    const char* filename
+)
 {
     std::ifstream in;
     in.open(filename, std::ifstream::in);
- 
+
     if (in.fail()) [[unlikely]]
     {
-        return std::unexpected { 
-            ModelParsingError { FileNotFound {
-                .file_path = filename
-            }}
+        return std::unexpected{
+            ModelParsingError{FileNotFound{.file_path = filename}}
         };
     }
 
@@ -54,7 +54,8 @@ std::expected<Model, ModelParsingError> parse_model(const char* filename)
             iss >> trash;
             while (iss >> idx >> trash >> itrash >> trash >> itrash)
             {
-                idx--; // in wavefront obj all indices start at 1, not zero
+                idx--; // in wavefront obj all indices start at 1, not
+                       // zero
                 f.push_back(idx);
             }
             model.faces.push_back(std::move(f));
@@ -64,4 +65,4 @@ std::expected<Model, ModelParsingError> parse_model(const char* filename)
     return model;
 }
 
-}
+} // namespace model
