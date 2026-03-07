@@ -29,6 +29,17 @@ struct AxonometricParams
     float beta  = static_cast<float>(M_PI) / 4.f;
 };
 
+// Модель освітлення Фонга: I_відб = Ia*Ka + I*(Kd*cosθ + Ks*cos^p α)
+struct PhongParams
+{
+    float Ia = 1.f;   // інтенсивність фонового освітлення
+    float I  = 1.f;   // інтенсивність направленого джерела світла
+    float Ka = 0.15f; // коефіцієнт фонового відбиття матеріалу
+    float Kd = 0.85f; // коефіцієнт дифузного відбиття матеріалу
+    float Ks = 0.5f;  // коефіцієнт дзеркального відбиття матеріалу
+    float p  = 32.f;  // якість полірування (1..200)
+};
+
 // ── matrix builders ───────────────────────────────────────────────────────────
 
 // clang-format off
@@ -107,6 +118,97 @@ cv::Vec3f applyTransform(const Mat4& m, const cv::Vec3f& v)
     return cv::Vec3f(r[0], r[1], r[2]);
 }
 
+// ── lighting ──────────────────────────────────────────────────────────────────
+
+cv::Vec3f faceNormal(const cv::Vec3f& v0, const cv::Vec3f& v1, const cv::Vec3f& v2)
+{
+    const cv::Vec3f e0 = v1 - v0;
+    const cv::Vec3f e1 = v2 - v0;
+
+    // N = e0 × e1
+    const cv::Vec3f n(
+        e0[1]*e1[2] - e0[2]*e1[1],
+        e0[2]*e1[0] - e0[0]*e1[2],
+        e0[0]*e1[1] - e0[1]*e1[0]
+    );
+
+    const float len = std::sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
+    if (len < 1e-6f) return cv::Vec3f(0.f, 0.f, 1.f);
+    return n * (1.f / len);
+}
+
+// Дифузна складова Ламберта: Id = I * Kd * cosθ
+// cosθ = dot(N, L)
+float diffuse(const cv::Vec3f& N, const cv::Vec3f& L, float I, float Kd)
+{
+    const float cos_theta = N[0]*L[0] + N[1]*L[1] + N[2]*L[2];
+
+    // Id = I * Kd * cosθ  (від'ємні значення обрізаємо — задня грань)
+    return I * Kd * std::max(0.f, cos_theta);
+}
+
+// Дзеркальна складова Фонга: Is = I * Ks * cos^p(α)
+// R = N * 2*(N·L)/|N|^2 - L
+// cosα = dot(R_norm, V)
+float specular(const cv::Vec3f& N, const cv::Vec3f& L,
+               const cv::Vec3f& V, float I, float Ks, float p)
+{
+    const float N_dot_L = N[0]*L[0] + N[1]*L[1] + N[2]*L[2];
+
+    if (N_dot_L <= 0.f) return 0.f; // задня грань — бліку немає
+
+    // R = N * 2*(N·L)/|N|^2 - L
+    const float N_dot_N = N[0]*N[0] + N[1]*N[1] + N[2]*N[2];
+    const float scale   = 2.f * N_dot_L / N_dot_N;
+    const cv::Vec3f R(
+        N[0]*scale - L[0],
+        N[1]*scale - L[1],
+        N[2]*scale - L[2]
+    );
+
+    const float R_len = std::sqrt(R[0]*R[0] + R[1]*R[1] + R[2]*R[2]);
+    if (R_len < 1e-6f) return 0.f;
+
+    // cosα = dot(R_norm, V)
+    const float cos_alpha = (R[0]*V[0] + R[1]*V[1] + R[2]*V[2]) / R_len;
+
+    if (cos_alpha <= 0.f) return 0.f;
+
+    // Is = I * Ks * cos^p(α)
+    return I * Ks * std::pow(cos_alpha, p);
+}
+
+// Повна формула Фонга: I_відб = Ia*Ka + I*(Kd*cosθ + Ks*cos^p α)
+cv::Vec3b applyLighting(const cv::Vec3b& color,
+                        const cv::Vec3f& N,
+                        const cv::Vec3f& L,
+                        const cv::Vec3f& V,
+                        const PhongParams& ph)
+{
+    // Ia_складова = Ia * Ka
+    const float I_ambient  = ph.Ia * ph.Ka;
+
+    // Id_складова = I * Kd * cosθ
+    const float I_diffuse  = diffuse(N, L, ph.I, ph.Kd);
+
+    // Is_складова = I * Ks * cos^p α
+    const float I_specular = specular(N, L, V, ph.I, ph.Ks, ph.p);
+
+    // I_відб = Ia*Ka + Id + Is
+    const float I_total = I_ambient + I_diffuse + I_specular;
+
+    // дифузна + фонова складова тонує базовий колір,
+    // дзеркальна додається як білий блік (колір джерела)
+    const float diffuse_factor  = I_ambient + I_diffuse;
+    const float specular_factor = I_specular;
+
+    return cv::Vec3b(
+        static_cast<uchar>(std::min(255.f, color[0] * diffuse_factor + 255.f * specular_factor)),
+        static_cast<uchar>(std::min(255.f, color[1] * diffuse_factor + 255.f * specular_factor)),
+        static_cast<uchar>(std::min(255.f, color[2] * diffuse_factor + 255.f * specular_factor))
+    );
+}
+
 // ── projections ───────────────────────────────────────────────────────────────
 
 cv::Point projectOrthographic(const cv::Vec3f& v, int w, int h)
@@ -121,8 +223,8 @@ cv::Point projectPerspective(const cv::Vec3f& v, int w, int h,
                              const PerspectiveParams& p)
 {
     const float denom = p.zc - v[2];
-    
-    if (std::abs(denom) < 1e-5f) [[unlikely]] 
+
+    if (std::abs(denom) < 1e-5f) [[unlikely]]
     {
         return projectOrthographic(v, w, h);
     }
@@ -142,7 +244,7 @@ cv::Point projectAxonometric(const cv::Vec3f& v, int w, int h,
 {
     const float ca = std::cos(p.alpha);
     const float sa = std::sin(p.alpha);
-    const float cb = std::cos(p.beta);  
+    const float cb = std::cos(p.beta);
     const float sb = std::sin(p.beta);
 
     const float X =  v[0]*ca - v[1]*sa;
@@ -177,7 +279,10 @@ void drawFaces(
     RenderMode render,
     ProjectionMode proj,
     const PerspectiveParams& pp,
-    const AxonometricParams& ap
+    const AxonometricParams& ap,
+    const cv::Vec3f& light_dir,
+    const cv::Vec3f& view_dir,
+    const PhongParams& phong
 )
 {
     const int w = image.cols, h = image.rows;
@@ -201,10 +306,14 @@ void drawFaces(
 
         if (render == RenderMode::Triangles)
         {
+            const cv::Vec3f N         = faceNormal(v0, v1, v2);
+            const cv::Vec3b lit_color = applyLighting(face_colors[i], N,
+                                                      light_dir, view_dir, phong);
+
             triangle_zbuf(
-                p0, p1, p2, 
-                v0[2], v1[2], v2[2], 
-                image, zbuf, face_colors[i]
+                p0, p1, p2,
+                v0[2], v1[2], v2[2],
+                image, zbuf, lit_color
             );
 
             // triangle(p0, p1, p2, image, face_colors[i]);
@@ -308,7 +417,17 @@ static constexpr std::string_view USAGE =
     "  Perspective params (optional): --zc=<float>    (camera Z, default 5.0)\n"
     "                                 --zsp=<float>   (screen plane Z, default 0.0)\n"
     "  Axonometric params (optional): --alpha=<float> (roll angle degrees, default 45.0)\n"
-    "                                 --beta=<float>  (pitch angle degrees, default 35.26)\n"
+    "                                 --beta=<float>  (pitch angle degrees, default 45.0)\n"
+    "  Light direction  (optional):   --lx=<float>    (default 0.0)\n"
+    "                                 --ly=<float>    (default 0.0)\n"
+    "                                 --lz=<float>    (default 1.0, toward camera)\n"
+    "  Phong (I_відб = Ia*Ka + I*(Kd*cosθ + Ks*cos^p α)):\n"
+    "                                 --Ia=<float>    (фонове освітлення, default 1.0)\n"
+    "                                 --I=<float>     (інтенсивність джерела, default 1.0)\n"
+    "                                 --Ka=<float>    (фоновий коеф. матеріалу, default 0.15)\n"
+    "                                 --Kd=<float>    (дифузний коеф. матеріалу, default 0.85)\n"
+    "                                 --Ks=<float>    (дзеркальний коеф. матеріалу, default 0.5)\n"
+    "                                 --p=<float>     (якість полірування 1-200, default 32)\n"
     "  Arguments can be in any order.\n";
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -327,6 +446,13 @@ int main(int argc, char* argv[])
 
     PerspectiveParams pp;
     AxonometricParams ap;
+    PhongParams       phong;
+
+    // Напрямок світла: за замовчуванням прямо на камеру (+Z)
+    float lx = 0.f, ly = 0.f, lz = 1.f;
+
+    // Спостерігач на нескінченності вздовж +Z
+    const cv::Vec3f view_dir(0.f, 0.f, 1.f);
 
     for (int i = 1; i < argc; i++)
     {
@@ -346,6 +472,15 @@ int main(int argc, char* argv[])
             ap.alpha = *v * static_cast<float>(M_PI) / 180.f;
         else if (const auto v = parseFloatParam(arg, "--beta="))
             ap.beta  = *v * static_cast<float>(M_PI) / 180.f;
+        else if (const auto v = parseFloatParam(arg, "--lx=")) lx = *v;
+        else if (const auto v = parseFloatParam(arg, "--ly=")) ly = *v;
+        else if (const auto v = parseFloatParam(arg, "--lz=")) lz = *v;
+        else if (const auto v = parseFloatParam(arg, "--Ia=")) phong.Ia = *v;
+        else if (const auto v = parseFloatParam(arg, "--I="))  phong.I  = *v;
+        else if (const auto v = parseFloatParam(arg, "--Ka=")) phong.Ka = *v;
+        else if (const auto v = parseFloatParam(arg, "--Kd=")) phong.Kd = *v;
+        else if (const auto v = parseFloatParam(arg, "--Ks=")) phong.Ks = *v;
+        else if (const auto v = parseFloatParam(arg, "--p="))  phong.p  = *v;
         else [[unlikely]]
         {
             std::cerr << "Unknown argument: " << arg << "\n" << USAGE;
@@ -369,6 +504,12 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    // Нормалізуємо напрямок світла щоб скалярні добутки давали коректні значення
+    const float llen = std::sqrt(lx*lx + ly*ly + lz*lz);
+    const cv::Vec3f light_dir = (llen < 1e-6f)
+        ? cv::Vec3f(0.f, 0.f, 1.f)
+        : cv::Vec3f(lx/llen, ly/llen, lz/llen);
+
     const std::expected<Model, ModelParsingError> maybe_model =
         model::parse_model("./models/african_head.obj");
 
@@ -384,7 +525,7 @@ int main(int argc, char* argv[])
     std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
     std::vector<cv::Vec3b> face_colors(model.faces.size());
-    
+
     for (auto& c : face_colors)
     {
         c = cv::Vec3b(dist(rng), dist(rng), dist(rng));
@@ -401,7 +542,8 @@ int main(int argc, char* argv[])
 
         cv::Mat image(height, width, CV_8UC3, cv::Scalar(50, 100, 20));
         drawFaces(model, image, buildTransform(*transform, t),
-                  face_colors, *render, *projection, pp, ap);
+                  face_colors, *render, *projection, pp, ap,
+                  light_dir, view_dir, phong);
 
         cv::imshow("3D Rotation", image);
         if (cv::waitKey(20) >= 0) [[unlikely]] break;
