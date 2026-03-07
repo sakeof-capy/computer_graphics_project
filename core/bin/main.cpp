@@ -19,14 +19,14 @@ enum class ProjectionMode { Orthographic, Perspective, Axonometric };
 
 struct PerspectiveParams
 {
-    float zc  = 5.f;   // camera Z (focus point)
-    float zsp = 0.f;   // screen plane Z
+    float zc  = 5.f;
+    float zsp = 0.f;
 };
 
 struct AxonometricParams
 {
-    float alpha = static_cast<float>(M_PI) / 4.f;          // roll around Z, default 45°
-    float beta  = std::atan(1.f / std::sqrt(2.f));          // pitch around X, default ~35.26°
+    float alpha = static_cast<float>(M_PI) / 4.f;
+    float beta  = static_cast<float>(M_PI) / 4.f;
 };
 
 // ── matrix builders ───────────────────────────────────────────────────────────
@@ -183,17 +183,31 @@ void drawFaces(
     const int w = image.cols, h = image.rows;
     const cv::Vec3b white{255, 255, 255};
 
+    std::vector<float> zbuf = (render == RenderMode::Triangles)
+        ? std::vector<float>(w * h, -std::numeric_limits<float>::infinity())
+        : std::vector<float>{};
+
     for (size_t i = 0; i < model.faces.size(); i++)
     {
         const auto& face = model.faces[i];
 
-        const cv::Point p0 = project(applyTransform(transform, model.verts[face[0]]), w, h, proj, pp, ap);
-        const cv::Point p1 = project(applyTransform(transform, model.verts[face[1]]), w, h, proj, pp, ap);
-        const cv::Point p2 = project(applyTransform(transform, model.verts[face[2]]), w, h, proj, pp, ap);
+        const cv::Vec3f v0 = applyTransform(transform, model.verts[face[0]]);
+        const cv::Vec3f v1 = applyTransform(transform, model.verts[face[1]]);
+        const cv::Vec3f v2 = applyTransform(transform, model.verts[face[2]]);
+
+        const cv::Point p0 = project(v0, w, h, proj, pp, ap);
+        const cv::Point p1 = project(v1, w, h, proj, pp, ap);
+        const cv::Point p2 = project(v2, w, h, proj, pp, ap);
 
         if (render == RenderMode::Triangles)
         {
-            triangle(p0, p1, p2, image, face_colors[i]);
+            triangle_zbuf(
+                p0, p1, p2, 
+                v0[2], v1[2], v2[2], 
+                image, zbuf, face_colors[i]
+            );
+
+            // triangle(p0, p1, p2, image, face_colors[i]);
         }
         else
         {
@@ -280,7 +294,6 @@ std::optional<ProjectionMode> parseProjectionMode(std::string_view arg)
     return std::nullopt;
 }
 
-// Parse --key=value pairs, e.g. "--zc=5.0"
 std::optional<float> parseFloatParam(std::string_view arg, std::string_view key)
 {
     if (arg.substr(0, key.size()) != key) return std::nullopt;
@@ -312,7 +325,7 @@ int main(int argc, char* argv[])
     std::optional<TransformMode>  transform;
     std::optional<ProjectionMode> projection;
 
-    PerspectiveParams pp;   // holds defaults, overridden by flags below
+    PerspectiveParams pp;
     AxonometricParams ap;
 
     for (int i = 1; i < argc; i++)
@@ -330,7 +343,7 @@ int main(int argc, char* argv[])
         else if (const auto v = parseFloatParam(arg, "--zsp="))
             pp.zsp = *v;
         else if (const auto v = parseFloatParam(arg, "--alpha="))
-            ap.alpha = *v * static_cast<float>(M_PI) / 180.f;  // degrees -> radians
+            ap.alpha = *v * static_cast<float>(M_PI) / 180.f;
         else if (const auto v = parseFloatParam(arg, "--beta="))
             ap.beta  = *v * static_cast<float>(M_PI) / 180.f;
         else [[unlikely]]
@@ -371,13 +384,17 @@ int main(int argc, char* argv[])
     std::mt19937 rng(std::random_device{}());
     std::uniform_int_distribution<int> dist(0, 255);
     std::vector<cv::Vec3b> face_colors(model.faces.size());
+    
     for (auto& c : face_colors)
+    {
         c = cv::Vec3b(dist(rng), dist(rng), dist(rng));
+    }
 
     const int width = 800, height = 800;
     cv::namedWindow("3D Rotation", cv::WINDOW_AUTOSIZE);
 
     int frame = 0;
+
     while (true)
     {
         const float t = frame * 0.02f;
