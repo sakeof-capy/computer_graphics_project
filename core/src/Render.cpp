@@ -39,6 +39,7 @@ void drawFaces(
             const cv::Vec3b lit_color = applyLighting(face_colors[i], N,
                                                       light_dir, view_dir, phong);
             triangle_zbuf(p0, p1, p2, v0[2], v1[2], v2[2], image, zbuf, lit_color);
+            // triangle(p0, p1, p2, image, lit_color);
         }
         else
         {
